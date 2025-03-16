@@ -43,7 +43,7 @@
       <!-- 表格内容区域 -->
       <div class="table-content">
         <el-table 
-          :data="paginatedData" 
+          :data="tableData" 
           style="width: 100%" 
           v-loading="loading"
           border
@@ -61,11 +61,11 @@
             </template>
           </el-table-column>
           <el-table-column label="操作" width="210" align="center" fixed="right">
-            <template #default>
+            <template #default="scope">
               <div class="action-buttons">
-                <el-button size="small" type="primary">编辑</el-button>
+                <el-button size="small" type="primary" @click="handleEdit(scope.row)">编辑</el-button>
                 <el-button size="small" type="success">跟踪</el-button>
-                <el-button size="small" type="danger">删除</el-button>
+                <el-button size="small" type="danger" @click="handleDelete(scope.row)">删除</el-button>
               </div>
             </template>
           </el-table-column>
@@ -78,13 +78,13 @@
             v-model:page-size="pageSize"
             :page-sizes="[10, 20, 30, 50]"
             layout="total, sizes, prev, pager, next, jumper"
-            :total="filteredData.length"
+            :total="total"
             @size-change="handleSizeChange"
             @current-change="handleCurrentChange"
             background
           >
             <template #total>
-              共 <strong>{{ filteredData.length }}</strong> 条数据
+              共 <strong>{{ total }}</strong> 条数据
             </template>
             <template #prev-text>上一页</template>
             <template #next-text>下一页</template>
@@ -92,17 +92,97 @@
               {{ size }}条/页
             </template>
             <template #jumper>
-              前往<el-input v-model="currentPage" :min="1" :max="Math.ceil(filteredData.length / pageSize)" />页
+              前往<el-input v-model="currentPage" :min="1" :max="Math.ceil(total / pageSize)" />页
             </template>
           </el-pagination>
         </div>
       </div>
     </el-card>
+
+    <!-- 新增/编辑计划对话框 -->
+    <el-dialog
+      v-model="dialogVisible"
+      :title="isEdit ? '编辑开发计划' : '新增开发计划'"
+      width="50%"
+      :close-on-click-modal="false"
+    >
+      <el-form :model="formData" :rules="formRules" ref="formRef" label-width="100px">
+        <el-form-item label="计划标题" prop="title">
+          <el-input v-model="formData.title" placeholder="请输入计划标题" />
+        </el-form-item>
+        <el-form-item label="客户" prop="clientId">
+          <el-select v-model="formData.clientId" placeholder="请选择客户" filterable>
+            <el-option 
+              v-for="item in clientOptions" 
+              :key="item.id" 
+              :label="item.name" 
+              :value="item.id" 
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="开始日期" prop="startDate">
+          <el-date-picker
+            v-model="formData.startDate"
+            type="date"
+            placeholder="请选择开始日期"
+            format="YYYY-MM-DD"
+            value-format="YYYY-MM-DD"
+          />
+        </el-form-item>
+        <el-form-item label="结束日期" prop="endDate">
+          <el-date-picker
+            v-model="formData.endDate"
+            type="date"
+            placeholder="请选择结束日期"
+            format="YYYY-MM-DD"
+            value-format="YYYY-MM-DD"
+          />
+        </el-form-item>
+        <el-form-item label="状态" prop="status">
+          <el-select v-model="formData.status" placeholder="请选择状态">
+            <el-option label="规划中" value="规划中" />
+            <el-option label="进行中" value="进行中" />
+            <el-option label="已完成" value="已完成" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="备注" prop="remark">
+          <el-input
+            v-model="formData.remark"
+            type="textarea"
+            :rows="3"
+            placeholder="请输入备注信息"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <span class="dialog-footer">
+          <el-button @click="dialogVisible = false">取消</el-button>
+          <el-button type="primary" @click="submitForm">确定</el-button>
+        </span>
+      </template>
+    </el-dialog>
+
+    <!-- 删除确认对话框 -->
+    <el-dialog
+      v-model="deleteDialogVisible"
+      title="删除确认"
+      width="30%"
+    >
+      <div>确定要删除【{{ deleteForm.title }}】计划吗？此操作不可恢复！</div>
+      <template #footer>
+        <span class="dialog-footer">
+          <el-button @click="deleteDialogVisible = false">取消</el-button>
+          <el-button type="danger" @click="confirmDelete">确定删除</el-button>
+        </span>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted } from 'vue';
+import { ElMessage, ElMessageBox } from 'element-plus';
+import { getPlanList, getPlanById, addPlan, updatePlan, deletePlan } from '@/api/plan';
 
 // 搜索表单
 const searchForm = ref({
@@ -116,132 +196,65 @@ const searchForm = ref({
 const currentPage = ref(1);
 const pageSize = ref(10);
 const loading = ref(false);
+const total = ref(0);
+const tableData = ref([]);
 
-// 模拟数据 - 扩展为更多数据以展示分页效果
-const allData = ref([
-  {
-    id: 1,
-    title: '客户管理系统开发',
-    client: '阿里巴巴科技有限公司',
-    startDate: '2023-04-01',
-    endDate: '2023-06-30',
-    status: '进行中'
-  },
-  {
-    id: 2,
-    title: '电子商务平台升级',
-    client: '腾讯科技有限公司',
-    startDate: '2023-05-15',
-    endDate: '2023-08-15',
-    status: '规划中'
-  },
-  {
-    id: 3,
-    title: '搜索引擎优化',
-    client: '百度在线网络技术有限公司',
-    startDate: '2023-03-10',
-    endDate: '2023-05-10',
-    status: '已完成'
-  },
-  {
-    id: 4,
-    title: '移动应用开发',
-    client: '京东集团',
-    startDate: '2023-06-01',
-    endDate: '2023-08-30',
-    status: '规划中'
-  },
-  {
-    id: 5,
-    title: '智能家居控制系统',
-    client: '小米科技有限公司',
-    startDate: '2023-04-15',
-    endDate: '2023-07-15',
-    status: '进行中'
-  },
-  {
-    id: 6,
-    title: '5G网络优化',
-    client: '华为技术有限公司',
-    startDate: '2023-03-01',
-    endDate: '2023-09-01',
-    status: '进行中'
-  },
-  {
-    id: 7,
-    title: '在线教育平台',
-    client: '网易有道公司',
-    startDate: '2023-05-01',
-    endDate: '2023-07-30',
-    status: '进行中'
-  },
-  {
-    id: 8,
-    title: '短视频推荐算法',
-    client: '字节跳动有限公司',
-    startDate: '2023-02-15',
-    endDate: '2023-05-15',
-    status: '已完成'
-  },
-  {
-    id: 9,
-    title: '社区团购平台',
-    client: '拼多多电子商务',
-    startDate: '2023-04-10',
-    endDate: '2023-06-10',
-    status: '进行中'
-  },
-  {
-    id: 10,
-    title: '外卖配送系统升级',
-    client: '美团网络有限公司',
-    startDate: '2023-03-20',
-    endDate: '2023-05-20',
-    status: '已完成'
-  },
-  {
-    id: 11,
-    title: '网约车平台优化',
-    client: '滴滴出行科技有限公司',
-    startDate: '2023-06-15',
-    endDate: '2023-09-15',
-    status: '规划中'
-  },
-  {
-    id: 12,
-    title: '金融风控系统',
-    client: '陆金所金融科技',
-    startDate: '2023-05-10',
-    endDate: '2023-11-10',
-    status: '进行中'
-  },
-  {
-    id: 13,
-    title: '汽车销售管理系统',
-    client: '上海汽车集团',
-    startDate: '2023-07-01',
-    endDate: '2023-10-01',
-    status: '规划中'
-  },
-  {
-    id: 14,
-    title: '能源管理平台',
-    client: '中国石油天然气集团',
-    startDate: '2023-04-20',
-    endDate: '2023-08-20',
-    status: '进行中'
-  },
-  {
-    id: 15,
-    title: '医疗管理系统',
-    client: '协和医院',
-    startDate: '2023-03-15',
-    endDate: '2023-06-15',
-    status: '已完成'
-  }
+// 客户选项
+const clientOptions = ref([
+  { id: 1, name: '阿里巴巴科技有限公司' },
+  { id: 2, name: '腾讯科技有限公司' },
+  { id: 3, name: '百度在线网络技术有限公司' },
+  { id: 4, name: '京东集团' },
+  { id: 5, name: '小米科技有限公司' },
+  { id: 6, name: '华为技术有限公司' },
+  { id: 7, name: '网易有道公司' },
+  { id: 8, name: '字节跳动有限公司' },
+  { id: 9, name: '拼多多电子商务' },
+  { id: 10, name: '美团网络有限公司' }
 ]);
 
-// 根据状态返回标签类型
+// 对话框相关
+const dialogVisible = ref(false);
+const isEdit = ref(false);
+const formRef = ref(null);
+const formData = ref({
+  id: '',
+  title: '',
+  clientId: '',
+  startDate: '',
+  endDate: '',
+  status: '规划中',
+  remark: ''
+});
+
+// 表单验证规则
+const formRules = {
+  title: [
+    { required: true, message: '请输入计划标题', trigger: 'blur' },
+    { min: 2, max: 50, message: '长度在2到50个字符之间', trigger: 'blur' }
+  ],
+  clientId: [
+    { required: true, message: '请选择客户', trigger: 'change' }
+  ],
+  startDate: [
+    { required: true, message: '请选择开始日期', trigger: 'change' }
+  ],
+  endDate: [
+    { required: true, message: '请选择结束日期', trigger: 'change' }
+  ],
+  status: [
+    { required: true, message: '请选择状态', trigger: 'change' }
+  ]
+};
+
+// 删除相关
+const deleteDialogVisible = ref(false);
+const deleteForm = ref({
+  id: '',
+  title: ''
+});
+
+// 获取状态对应的类型
 const getStatusType = (status) => {
   switch (status) {
     case '规划中':
@@ -251,73 +264,169 @@ const getStatusType = (status) => {
     case '已完成':
       return 'success';
     default:
-      return '';
+      return 'info';
   }
 };
 
-// 根据搜索条件筛选数据
-const filteredData = computed(() => {
-  const { title, client, status, dateRange } = searchForm.value;
-  return allData.value.filter(item => {
-    // 标题和客户名称筛选
-    const titleMatch = !title || item.title.includes(title);
-    const clientMatch = !client || item.client.includes(client);
-    const statusMatch = !status || item.status === status;
+// 获取开发计划列表
+const fetchPlanList = async () => {
+  loading.value = true;
+  try {
+    const params = {
+      page: currentPage.value,
+      pageSize: pageSize.value
+    };
     
-    // 日期范围筛选
-    let dateMatch = true;
-    if (dateRange && dateRange.length === 2) {
-      const startDate = dateRange[0];
-      const endDate = dateRange[1];
-      
-      // 判断项目的日期是否在选择的范围内
-      // 项目开始日期在选择的开始日期之后，并且项目结束日期在选择的结束日期之前
-      dateMatch = item.startDate >= startDate && item.endDate <= endDate;
+    // 添加搜索条件
+    if (searchForm.value.title) {
+      params.title = searchForm.value.title;
+    }
+    if (searchForm.value.client) {
+      params.client = searchForm.value.client;
+    }
+    if (searchForm.value.status) {
+      params.status = searchForm.value.status;
+    }
+    if (searchForm.value.dateRange && searchForm.value.dateRange.length === 2) {
+      params.startDate = searchForm.value.dateRange[0];
+      params.endDate = searchForm.value.dateRange[1];
     }
     
-    return titleMatch && clientMatch && statusMatch && dateMatch;
-  });
-});
-
-// 当前页数据
-const paginatedData = computed(() => {
-  const start = (currentPage.value - 1) * pageSize.value;
-  const end = start + pageSize.value;
-  return filteredData.value.slice(start, end);
-});
+    const res = await getPlanList(params);
+    tableData.value = res.data.rows;
+    total.value = res.data.total;
+  } catch (error) {
+    console.error('获取开发计划列表出错:', error);
+    ElMessage.error('获取开发计划列表失败，请稍后重试');
+  } finally {
+    loading.value = false;
+  }
+};
 
 // 查询操作
 const handleSearch = () => {
-  loading.value = true;
-  setTimeout(() => {
-    currentPage.value = 1; // 查询后跳转到第一页
-    loading.value = false;
-  }, 300);
+  currentPage.value = 1; // 查询后跳转到第一页
+  fetchPlanList();
 };
 
-// 新增计划
+// 处理新增计划
 const handleAddPlan = () => {
-  // 实现新增计划的逻辑
-  console.log('新增计划');
+  isEdit.value = false;
+  formData.value = {
+    id: '',
+    title: '',
+    clientId: '',
+    startDate: '',
+    endDate: '',
+    status: '规划中',
+    remark: ''
+  };
+  dialogVisible.value = true;
+};
+
+// 处理编辑计划
+const handleEdit = async (row) => {
+  isEdit.value = true;
+  loading.value = true;
+  try {
+    const res = await getPlanById(row.id);
+    formData.value = {
+      id: res.data.id,
+      title: res.data.title,
+      clientId: res.data.clientId,
+      startDate: res.data.startDate,
+      endDate: res.data.endDate,
+      status: res.data.status,
+      remark: res.data.remark || ''
+    };
+    dialogVisible.value = true;
+  } catch (error) {
+    console.error('获取计划详情出错:', error);
+    ElMessage.error('获取计划详情失败，请稍后重试');
+  } finally {
+    loading.value = false;
+  }
+};
+
+// 提交表单
+const submitForm = () => {
+  if (formRef.value) {
+    formRef.value.validate(async (valid) => {
+      if (valid) {
+        loading.value = true;
+        try {
+          if (isEdit.value) {
+            // 更新计划
+            await updatePlan(formData.value);
+            ElMessage.success('更新计划成功');
+          } else {
+            // 添加计划
+            await addPlan(formData.value);
+            ElMessage.success('添加计划成功');
+          }
+          dialogVisible.value = false;
+          fetchPlanList(); // 重新加载列表
+        } catch (error) {
+          console.error(isEdit.value ? '更新计划出错:' : '添加计划出错:', error);
+          ElMessage.error(isEdit.value ? '更新计划失败，请稍后重试' : '添加计划失败，请稍后重试');
+        } finally {
+          loading.value = false;
+        }
+      } else {
+        ElMessage.warning('请完善表单信息');
+        return false;
+      }
+    });
+  }
+};
+
+// 处理删除计划
+const handleDelete = (row) => {
+  deleteForm.value = {
+    id: row.id,
+    title: row.title
+  };
+  deleteDialogVisible.value = true;
+};
+
+// 确认删除
+const confirmDelete = async () => {
+  loading.value = true;
+  try {
+    await deletePlan(deleteForm.value.id);
+    ElMessage.success('删除计划成功');
+    deleteDialogVisible.value = false;
+    
+    // 如果当前页只有一条数据且不是第一页，则删除后跳转到上一页
+    if (tableData.value.length === 1 && currentPage.value > 1) {
+      currentPage.value--;
+    }
+    
+    fetchPlanList(); // 重新加载列表
+  } catch (error) {
+    console.error('删除计划出错:', error);
+    ElMessage.error('删除计划失败，请稍后重试');
+  } finally {
+    loading.value = false;
+    deleteDialogVisible.value = false;
+  }
 };
 
 // 分页大小变化
 const handleSizeChange = (size) => {
   pageSize.value = size;
+  fetchPlanList();
 };
 
 // 页码变化
 const handleCurrentChange = (page) => {
   currentPage.value = page;
+  fetchPlanList();
 };
 
 // 初始化
 onMounted(() => {
-  // 模拟加载数据
-  loading.value = true;
-  setTimeout(() => {
-    loading.value = false;
-  }, 500);
+  fetchPlanList();
 });
 </script>
 
@@ -350,48 +459,33 @@ onMounted(() => {
 .form-items {
   display: flex;
   flex-wrap: wrap;
-  gap: 16px;
+  gap: 12px;
   flex: 1;
-  align-items: flex-end;
 }
 
 .form-item {
-  display: flex;
-  flex-direction: column;
-  min-width: 180px;
-  flex: 1;
+  width: 200px;
 }
 
 .date-range-item {
-  min-width: 300px;
-}
-
-.form-item label {
-  font-size: 14px;
-  color: #606266;
-  margin-bottom: 6px;
+  width: 320px;
 }
 
 .search-btn-wrapper {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
+  margin-left: 8px;
+}
+
+.search-btn {
   margin-left: 8px;
 }
 
 .action-btn-wrapper {
-  margin-left: 16px;
-  display: flex;
-  align-items: flex-end;
+  margin-left: 20px;
 }
 
-.search-btn {
-  background-color: #409EFF;
-  border-color: #409EFF;
-  border-radius: 4px;
-  height: 32px;
-}
-
-/* 表格区域 */
+/* 表格内容区域样式 */
 .table-content {
   padding: 16px;
 }
@@ -402,57 +496,17 @@ onMounted(() => {
   gap: 8px;
 }
 
+/* 分页容器样式 */
 .pagination-container {
-  margin-top: 16px;
+  margin-top: 20px;
   display: flex;
   justify-content: flex-end;
 }
 
-/* 优化表单元素样式 */
-:deep(.el-card__body) {
-  padding: 0;
-}
-
-:deep(.el-input__wrapper),
-:deep(.el-select),
-:deep(.el-date-editor.el-input) {
-  width: 100%;
-}
-
-:deep(.el-table) {
-  border: 1px solid #ebeef5;
-}
-
-:deep(.el-table th) {
-  height: 45px;
-}
-
-:deep(.el-table--border th) {
-  border-right: 1px solid #ebeef5;
-}
-
-:deep(.el-table--border td) {
-  border-right: 1px solid #ebeef5;
-}
-
-:deep(.el-pagination) {
-  font-weight: normal;
-}
-
-/* 自定义样式微调 */
-:deep(.el-button+.el-button) {
-  margin-left: 4px;
-}
-
-:deep(.el-input__inner) {
-  font-size: 14px;
-}
-
-:deep(.el-table .cell) {
-  padding: 0 8px;
-}
-
-:deep(.el-table--striped .el-table__body tr.el-table__row--striped td) {
-  background-color: #fafafa;
+/* 对话框样式 */
+.dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
 }
 </style> 
