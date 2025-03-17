@@ -26,14 +26,39 @@
       </div>
       
       <div class="data-table">
-        <el-table :data="tableData" style="width: 100%" v-loading="loading">
-          <el-table-column prop="id" label="ID" width="80" />
-          <el-table-column prop="name" label="客户名称" width="180" />
-          <el-table-column prop="contact" label="联系人" width="120" />
-          <el-table-column prop="phone" label="联系电话" width="150" />
-          <el-table-column prop="address" label="地址" />
-          <el-table-column prop="createTime" label="创建时间" width="180" />
-          <el-table-column label="操作" width="180">
+        <el-table 
+          :data="tableData" 
+          style="width: 100%" 
+          v-loading="loading"
+          border
+          stripe
+          highlight-current-row
+          :header-cell-style="{backgroundColor: '#f5f7fa', color: '#606266', fontWeight: 'bold'}"
+        >
+          <el-table-column prop="id" label="ID" width="70" align="center" />
+          <el-table-column prop="name" label="客户名称" min-width="180" show-overflow-tooltip />
+          <el-table-column label="联系人" width="100" align="center">
+            <template #default="scope">
+              {{ scope.row.contact || '暂无' }}
+            </template>
+          </el-table-column>
+          <el-table-column label="联系电话" width="120" align="center">
+            <template #default="scope">
+              {{ scope.row.phone || '暂无' }}
+            </template>
+          </el-table-column>
+          <el-table-column prop="address" label="地址" min-width="200" show-overflow-tooltip />
+          <el-table-column label="行业" width="100" align="center">
+            <template #default="scope">
+              {{ scope.row.industry || '暂无' }}
+            </template>
+          </el-table-column>
+          <el-table-column label="创建时间" width="160" align="center">
+            <template #default="scope">
+              {{ formatDate(scope.row.createdAt) }}
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="150" fixed="right">
             <template #default="scope">
               <el-button size="small" type="primary" @click="handleEdit(scope.row)">编辑</el-button>
               <el-button size="small" type="danger" @click="handleDelete(scope.row)">删除</el-button>
@@ -77,6 +102,9 @@
         <el-form-item label="地址" prop="address">
           <el-input v-model="editForm.address" placeholder="请输入地址" />
         </el-form-item>
+        <el-form-item label="行业" prop="industry">
+          <el-input v-model="editForm.industry" placeholder="请输入行业" />
+        </el-form-item>
       </el-form>
       <template #footer>
         <span class="dialog-footer">
@@ -105,6 +133,9 @@
         </el-form-item>
         <el-form-item label="地址" prop="address">
           <el-input v-model="addForm.address" placeholder="请输入地址" />
+        </el-form-item>
+        <el-form-item label="行业" prop="industry">
+          <el-input v-model="addForm.industry" placeholder="请输入行业" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -165,7 +196,8 @@ const editForm = ref({
   name: '',
   contact: '',
   phone: '',
-  address: ''
+  address: '',
+  industry: ''
 });
 
 // 新增相关
@@ -175,7 +207,8 @@ const addForm = ref({
   name: '',
   contact: '',
   phone: '',
-  address: ''
+  address: '',
+  industry: ''
 });
 
 // 删除相关
@@ -184,6 +217,13 @@ const deleteForm = ref({
   id: '',
   name: ''
 });
+
+// 格式化日期函数
+const formatDate = (dateStr) => {
+  if (!dateStr) return '暂无';
+  const date = new Date(dateStr);
+  return `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')}`;
+};
 
 // 表单验证规则 - 统一的验证规则用于新增和编辑
 const formRules = {
@@ -221,7 +261,8 @@ const fetchCustomerList = async () => {
     }
     
     const res = await getCustomerList(params);
-    tableData.value = res.data.rows;
+    // 适配后端返回的数据结构
+    tableData.value = res.data.list;
     total.value = res.data.total;
   } catch (error) {
     console.error('获取客户列表出错:', error);
@@ -266,7 +307,8 @@ const handleAdd = () => {
     name: '',
     contact: '',
     phone: '',
-    address: ''
+    address: '',
+    industry: ''
   };
   addDialogVisible.value = true;
 };
@@ -291,7 +333,8 @@ const confirmAdd = () => {
             name: addForm.value.name,
             contact: addForm.value.contact,
             phone: addForm.value.phone,
-            address: addForm.value.address
+            address: addForm.value.address,
+            industry: addForm.value.industry
           });
           
           ElMessage.success('添加成功');
@@ -321,9 +364,10 @@ const handleEdit = async (row) => {
     editForm.value = {
       id: res.data.id,
       name: res.data.name,
-      contact: res.data.contact,
-      phone: res.data.phone,
-      address: res.data.address
+      contact: res.data.contact || '',
+      phone: res.data.phone || '',
+      address: res.data.address,
+      industry: res.data.industry || ''
     };
     editDialogVisible.value = true;
   } catch (error) {
@@ -366,7 +410,8 @@ const confirmEdit = () => {
                 name: editForm.value.name,
                 contact: editForm.value.contact,
                 phone: editForm.value.phone,
-                address: editForm.value.address
+                address: editForm.value.address,
+                industry: editForm.value.industry
               });
               
               ElMessage.success('修改成功');
@@ -468,5 +513,30 @@ onMounted(() => {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
+}
+
+/* 美化表格样式 */
+:deep(.el-table) {
+  --el-table-border-color: #ebeef5;
+  --el-table-border: 1px solid var(--el-table-border-color);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+:deep(.el-table th) {
+  background-color: #f5f7fa !important;
+}
+
+:deep(.el-table--striped .el-table__body tr.el-table__row--striped td) {
+  background-color: #fafafa;
+}
+
+:deep(.el-table .cell) {
+  padding: 12px 8px;
+}
+
+:deep(.el-button--small) {
+  padding: 6px 12px;
+  font-size: 12px;
 }
 </style> 

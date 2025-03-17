@@ -9,7 +9,7 @@ import request from '@/utils/request';
  */
 export function getPlanList(params) {
   return request({
-    url: '/plans',
+    url: '/development/plans/list',
     method: 'get',
     params
   });
@@ -22,7 +22,7 @@ export function getPlanList(params) {
  */
 export function getPlanById(id) {
   return request({
-    url: `/plans/${id}`,
+    url: `/development/plans/${id}`,
     method: 'get'
   });
 }
@@ -34,7 +34,7 @@ export function getPlanById(id) {
  */
 export function addPlan(data) {
   return request({
-    url: '/plans',
+    url: '/development/plans',
     method: 'post',
     data
   });
@@ -47,7 +47,7 @@ export function addPlan(data) {
  */
 export function updatePlan(data) {
   return request({
-    url: '/plans',
+    url: '/development/plans',
     method: 'put',
     data
   });
@@ -60,7 +60,7 @@ export function updatePlan(data) {
  */
 export function deletePlan(id) {
   return request({
-    url: `/plans/${id}`,
+    url: `/development/plans/${id}`,
     method: 'delete'
   });
 } 

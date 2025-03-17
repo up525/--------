@@ -20,6 +20,12 @@ const routes = [
         meta: { title: '资料管理' }
       },
       {
+        path: '/customer-follow',
+        name: 'CustomerFollow',
+        component: () => import('../views/dataManagement/follow.vue'),
+        meta: { title: '客户跟进' }
+      },
+      {
         path: '/development-plan/management',
         name: 'DevelopmentPlanManagement',
         component: () => import('../views/developmentPlan/management/index.vue'),

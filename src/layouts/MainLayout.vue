@@ -29,6 +29,11 @@
             <span>资料管理</span>
           </el-menu-item>
 
+          <el-menu-item index="/customer-follow">
+            <el-icon><Document /></el-icon>
+            <span>客户跟进</span>
+          </el-menu-item>
+
           <el-sub-menu index="/development-plan">
             <template #title>
               <el-icon><Calendar /></el-icon>
@@ -67,7 +72,8 @@ import {
   Calendar, 
   SetUp, 
   Timer, 
-  PieChart 
+  PieChart,
+  Document
 } from '@element-plus/icons-vue';
 
 const activeIndex = ref('/home');
