@@ -246,8 +246,41 @@ const fetchCustomerDistribution = async () => {
   loadingStatuses.value.customerDistribution = true;
   try {
     const res = await getCustomerDistribution();
+    console.log('客户分布数据:', res.data);
     
     if (res && res.data) {
+      // 安全解析数据
+      let regionsData = [];
+      let pieData = [];
+      
+      // 尝试从不同可能的数据结构中提取数据
+      if (Array.isArray(res.data)) {
+        // 如果是数组格式，直接使用
+        regionsData = res.data.map(item => item.name || '未知区域');
+        pieData = res.data.map(item => ({
+          name: item.name || '未知区域',
+          value: typeof item.value === 'number' ? item.value : parseInt(item.value) || 0
+        }));
+      } else if (res.data.data && Array.isArray(res.data.data)) {
+        // 标准格式
+        regionsData = res.data.regions || res.data.data.map(item => item.name || '未知区域');
+        pieData = res.data.data;
+      } else if (res.data.regions && Array.isArray(res.data.regions)) {
+        // 使用regions和data字段
+        regionsData = res.data.regions;
+        pieData = res.data.data || regionsData.map((region, index) => ({
+          name: region,
+          value: (res.data.values && res.data.values[index]) || 0
+        }));
+      } else {
+        // 尝试从对象中构建数据
+        regionsData = Object.keys(res.data).filter(key => key !== 'code' && key !== 'message');
+        pieData = regionsData.map(key => ({
+          name: key,
+          value: typeof res.data[key] === 'number' ? res.data[key] : 0
+        }));
+      }
+      
       const option = {
         tooltip: {
           trigger: 'item',
@@ -257,7 +290,7 @@ const fetchCustomerDistribution = async () => {
           orient: 'vertical',
           right: 10,
           top: 'center',
-          data: res.data.regions || []
+          data: regionsData
         },
         series: [
           {
@@ -275,7 +308,7 @@ const fetchCustomerDistribution = async () => {
             labelLine: {
               show: true
             },
-            data: res.data.data || []
+            data: pieData
           }
         ]
       };
@@ -295,8 +328,41 @@ const fetchProductSales = async () => {
   loadingStatuses.value.productSales = true;
   try {
     const res = await getProductSalesPercentage();
+    console.log('产品销售占比数据:', res.data);
     
     if (res && res.data) {
+      // 安全解析数据
+      let productsData = [];
+      let pieData = [];
+      
+      // 尝试从不同可能的数据结构中提取数据
+      if (Array.isArray(res.data)) {
+        // 如果是数组格式，直接使用
+        productsData = res.data.map(item => item.name || '未知产品');
+        pieData = res.data.map(item => ({
+          name: item.name || '未知产品',
+          value: typeof item.value === 'number' ? item.value : parseFloat(item.value) || 0
+        }));
+      } else if (res.data.data && Array.isArray(res.data.data)) {
+        // 标准格式
+        productsData = res.data.products || res.data.data.map(item => item.name || '未知产品');
+        pieData = res.data.data;
+      } else if (res.data.products && Array.isArray(res.data.products)) {
+        // 使用products和values字段
+        productsData = res.data.products;
+        pieData = res.data.data || productsData.map((product, index) => ({
+          name: product,
+          value: (res.data.values && res.data.values[index]) || 0
+        }));
+      } else {
+        // 尝试从对象中构建数据
+        productsData = Object.keys(res.data).filter(key => key !== 'code' && key !== 'message');
+        pieData = productsData.map(key => ({
+          name: key,
+          value: typeof res.data[key] === 'number' ? res.data[key] : 0
+        }));
+      }
+      
       const option = {
         tooltip: {
           trigger: 'item',
@@ -306,7 +372,7 @@ const fetchProductSales = async () => {
           orient: 'vertical',
           left: 10,
           top: 'center',
-          data: res.data.products || []
+          data: productsData
         },
         series: [
           {
@@ -314,7 +380,7 @@ const fetchProductSales = async () => {
             type: 'pie',
             radius: '60%',
             center: ['60%', '50%'],
-            data: res.data.data || [],
+            data: pieData,
             emphasis: {
               itemStyle: {
                 shadowBlur: 10,
@@ -341,8 +407,78 @@ const fetchSalesChannel = async () => {
   loadingStatuses.value.salesChannel = true;
   try {
     const res = await getSalesChannelAnalysis();
+    console.log('销售渠道分析数据:', res.data);
     
     if (res && res.data) {
+      // 安全处理数据
+      let channels = [];
+      let newCustomers = [];
+      let oldCustomers = [];
+      
+      // 检查并解析渠道数据
+      if (res.data.channels) {
+        if (Array.isArray(res.data.channels)) {
+          channels = res.data.channels;
+        } else if (typeof res.data.channels === 'string') {
+          // 尝试解析JSON字符串
+          try {
+            channels = JSON.parse(res.data.channels);
+          } catch (e) {
+            console.warn('解析channels失败:', e);
+            channels = ['未知渠道'];
+          }
+        }
+      }
+      
+      // 检查并解析新客户数据
+      if (res.data.newCustomers) {
+        if (Array.isArray(res.data.newCustomers)) {
+          newCustomers = res.data.newCustomers;
+        } else if (typeof res.data.newCustomers === 'string') {
+          // 尝试解析JSON字符串
+          try {
+            newCustomers = JSON.parse(res.data.newCustomers);
+          } catch (e) {
+            console.warn('解析newCustomers失败:', e);
+            newCustomers = [0];
+          }
+        }
+      }
+      
+      // 检查并解析老客户数据（可能是returningCustomers或oldCustomers）
+      const oldCustomersField = res.data.returningCustomers || res.data.oldCustomers;
+      if (oldCustomersField) {
+        if (Array.isArray(oldCustomersField)) {
+          oldCustomers = oldCustomersField;
+        } else if (typeof oldCustomersField === 'string') {
+          // 尝试解析JSON字符串
+          try {
+            oldCustomers = JSON.parse(oldCustomersField);
+          } catch (e) {
+            console.warn('解析oldCustomers失败:', e);
+            oldCustomers = [0];
+          }
+        }
+      }
+      
+      // 确保数据长度一致
+      const maxLength = Math.max(channels.length, newCustomers.length, oldCustomers.length);
+      
+      // 填充缺失数据
+      if (channels.length < maxLength) {
+        for (let i = channels.length; i < maxLength; i++) {
+          channels.push(`渠道${i+1}`);
+        }
+      }
+      
+      if (newCustomers.length < maxLength) {
+        newCustomers = newCustomers.concat(Array(maxLength - newCustomers.length).fill(0));
+      }
+      
+      if (oldCustomers.length < maxLength) {
+        oldCustomers = oldCustomers.concat(Array(maxLength - oldCustomers.length).fill(0));
+      }
+      
       const option = {
         tooltip: {
           trigger: 'axis',
@@ -365,18 +501,18 @@ const fetchSalesChannel = async () => {
         },
         yAxis: {
           type: 'category',
-          data: res.data.channels || []
+          data: channels
         },
         series: [
           {
             name: '新客户',
             type: 'bar',
-            data: res.data.newCustomers || []
+            data: newCustomers
           },
           {
             name: '老客户',
             type: 'bar',
-            data: res.data.oldCustomers || []
+            data: oldCustomers
           }
         ]
       };
@@ -399,8 +535,51 @@ const fetchSalespersonPerformance = async () => {
       period: performancePeriod.value
     };
     const res = await getSalespersonPerformance(params);
+    console.log('销售人员业绩排名数据:', res.data);
     
     if (res && res.data) {
+      // 安全处理数据
+      let salespeople = [];
+      let salesAmount = [];
+      let salesCount = [];
+      
+      // 检查返回数据的格式
+      if (res.data.salespeople && Array.isArray(res.data.salespeople)) {
+        // 已经是需要的格式
+        salespeople = res.data.salespeople;
+        salesAmount = res.data.salesAmount || [];
+        salesCount = res.data.salesCount || [];
+      } else if (Array.isArray(res.data)) {
+        // 需要手动处理数组数据
+        salespeople = res.data.map(item => item.name || '未知');
+        
+        // 处理销售额和销售量
+        res.data.forEach(item => {
+          if (item.value) {
+            if (typeof item.value === 'object') {
+              salesAmount.push(item.value.amount || 0);
+              salesCount.push(item.value.count || 0);
+            } else if (typeof item.value === 'string') {
+              try {
+                const value = JSON.parse(item.value);
+                salesAmount.push(value.amount || 0);
+                salesCount.push(value.count || 0);
+              } catch (e) {
+                console.warn('解析sales value失败:', e);
+                salesAmount.push(0);
+                salesCount.push(0);
+              }
+            } else {
+              salesAmount.push(0);
+              salesCount.push(0);
+            }
+          } else {
+            salesAmount.push(0);
+            salesCount.push(0);
+          }
+        });
+      }
+      
       const option = {
         tooltip: {
           trigger: 'axis',
@@ -419,7 +598,7 @@ const fetchSalespersonPerformance = async () => {
         },
         xAxis: {
           type: 'category',
-          data: res.data.salespeople || []
+          data: salespeople
         },
         yAxis: [
           {
@@ -441,13 +620,13 @@ const fetchSalespersonPerformance = async () => {
           {
             name: '销售额',
             type: 'bar',
-            data: res.data.salesAmount || []
+            data: salesAmount
           },
           {
             name: '销售总量',
             type: 'line',
             yAxisIndex: 1,
-            data: res.data.salesCount || []
+            data: salesCount
           }
         ]
       };

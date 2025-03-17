@@ -168,16 +168,59 @@ const fetchDashboardData = async () => {
     console.log('Dashboard API返回数据:', res);
     
     if (res && res.data) {
+      // 解析响应字段，处理多种可能的数据格式
+      const parseValueAndTrend = (data, fieldName, defaultValue = 0) => {
+        console.log(`解析字段 ${fieldName}:`, data[fieldName]);
+        try {
+          const fieldData = data[fieldName];
+          const trendField = `${fieldName}Trend`;
+          let value = defaultValue;
+          let trend = 0;
+          
+          if (fieldData === undefined || fieldData === null) {
+            console.warn(`${fieldName} 字段不存在或为空`);
+          } else if (typeof fieldData === 'object') {
+            // 如果是对象，尝试获取value和trend属性
+            value = fieldData.value !== undefined ? fieldData.value : 
+                   fieldData.count !== undefined ? fieldData.count : defaultValue;
+            trend = fieldData.trend !== undefined ? fieldData.trend : data[trendField] || 0;
+          } else if (typeof fieldData === 'string') {
+            // 如果是字符串，尝试解析为JSON
+            try {
+              const parsedValue = JSON.parse(fieldData);
+              if (typeof parsedValue === 'object') {
+                value = parsedValue.value !== undefined ? parsedValue.value : 
+                       parsedValue.count !== undefined ? parsedValue.count : defaultValue;
+                trend = parsedValue.trend !== undefined ? parsedValue.trend : data[trendField] || 0;
+              } else {
+                value = parsedValue || defaultValue;
+                trend = data[trendField] || 0;
+              }
+            } catch (e) {
+              // 如果不是JSON，直接使用字符串值
+              console.warn(`解析${fieldName}字符串为JSON失败:`, e);
+              value = isNaN(Number(fieldData)) ? defaultValue : Number(fieldData);
+              trend = data[trendField] || 0;
+            }
+          } else {
+            // 数字或其他类型，直接使用
+            value = fieldData;
+            trend = data[trendField] || 0;
+          }
+          
+          return { value, trend };
+        } catch (e) {
+          console.error(`处理${fieldName}时出错:`, e);
+          return { value: defaultValue, trend: 0 };
+        }
+      };
+      
       // 客户总数
       try {
-        let customerData = res.data.customerCount;
-        if (typeof customerData === 'object' && customerData !== null) {
-          statistics.value[0].value = formatNumber(customerData.value || 0);
-          statistics.value[0].trend = customerData.trend || 0;
-        } else {
-          statistics.value[0].value = formatNumber(customerData || 0);
-          statistics.value[0].trend = res.data.customerCountTrend || 0;
-        }
+        const customerData = parseValueAndTrend(res.data, 'customerCount');
+        statistics.value[0].value = formatNumber(customerData.value);
+        statistics.value[0].trend = customerData.trend;
+        console.log('处理后的客户总数:', statistics.value[0]);
       } catch (e) {
         console.error('处理客户总数数据出错:', e);
         statistics.value[0].value = '0';
@@ -186,14 +229,10 @@ const fetchDashboardData = async () => {
       
       // 本月销售额
       try {
-        let salesData = res.data.monthlySales;
-        if (typeof salesData === 'object' && salesData !== null) {
-          statistics.value[1].value = `¥${formatNumber(salesData.value || 0)}`;
-          statistics.value[1].trend = salesData.trend || 0;
-        } else {
-          statistics.value[1].value = `¥${formatNumber(salesData || 0)}`;
-          statistics.value[1].trend = res.data.monthlySalesTrend || 0;
-        }
+        const salesData = parseValueAndTrend(res.data, 'monthlySales');
+        statistics.value[1].value = `¥${formatNumber(salesData.value)}`;
+        statistics.value[1].trend = salesData.trend;
+        console.log('处理后的月销售额:', statistics.value[1]);
       } catch (e) {
         console.error('处理销售额数据出错:', e);
         statistics.value[1].value = '¥0';
@@ -202,14 +241,10 @@ const fetchDashboardData = async () => {
       
       // 订单数量
       try {
-        let orderData = res.data.orderCount;
-        if (typeof orderData === 'object' && orderData !== null) {
-          statistics.value[2].value = formatNumber(orderData.value || 0);
-          statistics.value[2].trend = orderData.trend || 0;
-        } else {
-          statistics.value[2].value = formatNumber(orderData || 0);
-          statistics.value[2].trend = res.data.orderCountTrend || 0;
-        }
+        const orderData = parseValueAndTrend(res.data, 'orderCount');
+        statistics.value[2].value = formatNumber(orderData.value);
+        statistics.value[2].trend = orderData.trend;
+        console.log('处理后的订单数量:', statistics.value[2]);
       } catch (e) {
         console.error('处理订单数量数据出错:', e);
         statistics.value[2].value = '0';
@@ -218,14 +253,10 @@ const fetchDashboardData = async () => {
       
       // 新增客户
       try {
-        let newCustomerData = res.data.newCustomerCount;
-        if (typeof newCustomerData === 'object' && newCustomerData !== null) {
-          statistics.value[3].value = formatNumber(newCustomerData.value || 0);
-          statistics.value[3].trend = newCustomerData.trend || 0;
-        } else {
-          statistics.value[3].value = formatNumber(newCustomerData || 0);
-          statistics.value[3].trend = res.data.newCustomerCountTrend || 0;
-        }
+        const newCustomerData = parseValueAndTrend(res.data, 'newCustomerCount');
+        statistics.value[3].value = formatNumber(newCustomerData.value);
+        statistics.value[3].trend = newCustomerData.trend;
+        console.log('处理后的新增客户:', statistics.value[3]);
       } catch (e) {
         console.error('处理新增客户数据出错:', e);
         statistics.value[3].value = '0';
@@ -244,7 +275,12 @@ const fetchDashboardData = async () => {
 // 格式化数字
 const formatNumber = (num) => {
   if (num === undefined || num === null) return '0';
-  return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  
+  // 确保num是数字
+  const value = typeof num === 'string' ? parseFloat(num) : num;
+  if (isNaN(value)) return '0';
+  
+  return value.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 };
 </script>
 

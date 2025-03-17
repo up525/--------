@@ -157,40 +157,176 @@ export function readBlobAsync(blob) {
 }
 
 /**
- * 格式化BLOB字段对象
- * 用于处理整个对象中的BLOB字段
- * @param {Object} obj - 包含BLOB字段的对象
- * @param {Array<String>} blobFields - BLOB字段名称数组
+ * BLOB数据处理工具函数
+ * 用于处理后端返回的BLOB二进制数据和各种格式的数据结构
+ */
+
+/**
+ * 处理单个对象中的BLOB字段
+ * @param {Object} obj - 需要处理的对象
  * @returns {Object} - 处理后的对象
  */
-export function formatObjectWithBlobs(obj, blobFields = ['content', 'nextPlan']) {
-  if (!obj || typeof obj !== 'object') {
-    return obj;
-  }
+export function formatObjectWithBlobs(obj) {
+  if (!obj || typeof obj !== 'object') return obj;
   
   const result = { ...obj };
   
-  blobFields.forEach(field => {
-    if (obj[field] !== undefined) {
-      result[field] = parseBlobContent(obj[field], '');
+  // 遍历所有字段
+  for (const key in result) {
+    // 跳过继承的属性
+    if (!Object.prototype.hasOwnProperty.call(result, key)) continue;
+    
+    const value = result[key];
+    
+    // 处理嵌套对象
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      // 检查是否是BLOB对象
+      if (value.data instanceof Array || 
+          value instanceof Uint8Array || 
+          value instanceof ArrayBuffer) {
+        
+        try {
+          // 尝试将BLOB转换为字符串
+          let text = '';
+          if (value instanceof Uint8Array) {
+            text = new TextDecoder().decode(value);
+          } else if (value.data instanceof Array) {
+            text = new TextDecoder().decode(new Uint8Array(value.data));
+          } else {
+            text = JSON.stringify(value);
+          }
+          
+          // 尝试解析为JSON
+          try {
+            result[key] = JSON.parse(text);
+            console.log(`成功解析${key}字段为JSON对象`);
+          } catch (e) {
+            console.warn(`${key}字段内容不是有效的JSON，保留为文本`);
+            result[key] = text;
+          }
+        } catch (e) {
+          console.error(`处理${key}字段BLOB数据失败:`, e);
+        }
+      } else {
+        // 递归处理普通嵌套对象
+        result[key] = formatObjectWithBlobs(value);
+      }
+    } 
+    // 处理字符串类型（可能是JSON字符串）
+    else if (typeof value === 'string' && value.trim().startsWith('{')) {
+      try {
+        result[key] = JSON.parse(value);
+        console.log(`成功解析${key}字符串为JSON对象`);
+      } catch (e) {
+        // 保持原始值
+      }
     }
-  });
+    // 处理数组
+    else if (Array.isArray(value)) {
+      result[key] = formatListWithBlobs(value);
+    }
+  }
   
   return result;
 }
 
 /**
- * 处理整个数据列表中的BLOB字段
- * @param {Array<Object>} list - 对象数组
- * @param {Array<String>} blobFields - BLOB字段名称数组
- * @returns {Array<Object>} - 处理后的对象数组
+ * 处理数组中的BLOB字段
+ * @param {Array} list - 需要处理的数组
+ * @returns {Array} - 处理后的数组
  */
-export function formatListWithBlobs(list, blobFields = ['content', 'nextPlan']) {
-  if (!Array.isArray(list)) {
-    return [];
+export function formatListWithBlobs(list) {
+  if (!Array.isArray(list)) return list;
+  
+  return list.map(item => {
+    if (item && typeof item === 'object') {
+      return formatObjectWithBlobs(item);
+    }
+    return item;
+  });
+}
+
+/**
+ * 安全解析JSON字符串
+ * @param {String} str - 需要解析的JSON字符串
+ * @param {*} defaultValue - 解析失败时的默认值
+ * @returns {*} - 解析结果或默认值
+ */
+export function safeParseJSON(str, defaultValue = null) {
+  if (typeof str !== 'string') return defaultValue;
+  
+  try {
+    return JSON.parse(str);
+  } catch (e) {
+    console.warn('JSON解析失败:', e);
+    return defaultValue;
+  }
+}
+
+/**
+ * 提取值和趋势
+ * @param {Object} data - 数据对象
+ * @param {String} fieldName - 字段名
+ * @param {*} defaultValue - 默认值
+ * @returns {Object} - {value, trend} 格式的结果
+ */
+export function extractValueAndTrend(data, fieldName, defaultValue = 0) {
+  if (!data || typeof data !== 'object') {
+    return { value: defaultValue, trend: 0 };
   }
   
-  return list.map(item => formatObjectWithBlobs(item, blobFields));
+  try {
+    const fieldData = data[fieldName];
+    const trendField = `${fieldName}Trend`;
+    let value = defaultValue;
+    let trend = 0;
+    
+    if (fieldData === undefined || fieldData === null) {
+      console.warn(`${fieldName} 字段不存在或为空`);
+    } else if (typeof fieldData === 'object') {
+      // 如果是对象，尝试获取value和trend属性
+      value = fieldData.value !== undefined ? fieldData.value : 
+             fieldData.count !== undefined ? fieldData.count : defaultValue;
+      trend = fieldData.trend !== undefined ? fieldData.trend : data[trendField] || 0;
+    } else if (typeof fieldData === 'string') {
+      // 如果是字符串，尝试解析为JSON
+      const parsedValue = safeParseJSON(fieldData);
+      if (parsedValue !== null && typeof parsedValue === 'object') {
+        value = parsedValue.value !== undefined ? parsedValue.value : 
+               parsedValue.count !== undefined ? parsedValue.count : defaultValue;
+        trend = parsedValue.trend !== undefined ? parsedValue.trend : data[trendField] || 0;
+      } else {
+        value = parsedValue !== null ? parsedValue : 
+               (isNaN(Number(fieldData)) ? defaultValue : Number(fieldData));
+        trend = data[trendField] || 0;
+      }
+    } else {
+      // 数字或其他类型，直接使用
+      value = fieldData;
+      trend = data[trendField] || 0;
+    }
+    
+    return { value, trend };
+  } catch (e) {
+    console.error(`处理${fieldName}时出错:`, e);
+    return { value: defaultValue, trend: 0 };
+  }
+}
+
+/**
+ * 格式化数字
+ * @param {*} num - 需要格式化的数字
+ * @param {String} defaultValue - 默认值
+ * @returns {String} - 格式化后的字符串
+ */
+export function formatNumber(num, defaultValue = '0') {
+  if (num === undefined || num === null) return defaultValue;
+  
+  // 确保num是数字
+  const value = typeof num === 'string' ? parseFloat(num) : num;
+  if (isNaN(value)) return defaultValue;
+  
+  return value.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 
 export default {
