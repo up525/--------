@@ -6,16 +6,22 @@ const request = axios.create({
   // 基础URL，将自动加在 url 前面
   baseURL: '/api',
   // 请求超时时间
-  timeout: 10000,
+  timeout: 30000,
   // 允许跨域带Cookie
-  withCredentials: true
+  withCredentials: true,
+  // 默认接受JSON响应
+  responseType: 'json'
 });
 
 // 请求拦截器
 request.interceptors.request.use(
   config => {
     // 可以在这里设置请求头、token等
-    console.log('Request sent:', config.method.toUpperCase(), config.baseURL + config.url);
+    console.log('Request sent:', config.method.toUpperCase(), config.baseURL + config.url, config.params || config.data);
+    
+    // 添加请求标识
+    config.requestId = Date.now() + Math.random().toString(36).substring(2, 10);
+    
     return config;
   },
   error => {
@@ -27,8 +33,77 @@ request.interceptors.request.use(
 // 响应拦截器
 request.interceptors.response.use(
   response => {
+    console.log('Response received:', response.config.url, response.status, response.headers['content-type'] || '未知类型');
+    
+    // 根据内容类型处理响应
+    const contentType = response.headers['content-type'] || '';
+    
+    // BLOB数据特殊处理
+    if (contentType.includes('application/octet-stream') || contentType.includes('text/plain')) {
+      console.log('收到二进制或文本响应:', contentType);
+      
+      // 尝试判断响应是否已经是对象
+      if (typeof response.data === 'object' && response.data !== null && !Buffer.isBuffer(response.data)) {
+        console.log('二进制响应已被解析为对象');
+        if (response.data.code !== 1) {
+          ElMessage.error(response.data.message || '请求失败');
+          return Promise.reject(new Error(response.data.message || '未知错误'));
+        }
+        return response.data;
+      }
+      
+      // 尝试作为JSON解析
+      if (typeof response.data === 'string') {
+        try {
+          const jsonData = JSON.parse(response.data);
+          console.log('文本响应解析为JSON对象');
+          
+          if (jsonData.code !== 1) {
+            ElMessage.error(jsonData.message || '请求失败');
+            return Promise.reject(new Error(jsonData.message || '未知错误'));
+          }
+          return jsonData;
+        } catch (e) {
+          console.log('响应不是有效的JSON格式，返回原始数据');
+          // 不是有效的JSON，返回原始响应
+          return {
+            code: 1,
+            message: 'success',
+            data: response.data
+          };
+        }
+      }
+      
+      // 其他二进制数据，包装为标准响应格式
+      return {
+        code: 1,
+        message: 'success',
+        data: response.data
+      };
+    }
+    
+    // 标准JSON响应处理
     const res = response.data;
-    console.log('Response received:', response.config.url, response.status);
+    
+    // 检查响应格式
+    if (res === undefined || res === null) {
+      console.error('响应数据为空');
+      return {
+        code: 1,
+        message: 'success',
+        data: { list: [], total: 0 }
+      };
+    }
+    
+    // 如果已经是标准对象但没有code字段，添加标准字段
+    if (typeof res === 'object' && res !== null && res.code === undefined) {
+      console.log('响应对象没有code字段，添加标准字段');
+      return {
+        code: 1,
+        message: 'success',
+        data: res
+      };
+    }
     
     // 如果返回的code不为1，说明后端接口返回了错误信息
     if (res.code !== 1) {

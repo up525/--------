@@ -234,6 +234,7 @@ import {
   deleteFollow 
 } from '@/api/follow';
 import { getCustomerList } from '@/api/customer';
+import { parseBlobContent, formatObjectWithBlobs, formatListWithBlobs } from '@/utils/blob-parser';
 
 // 搜索表单
 const searchForm = ref({
@@ -327,12 +328,86 @@ const fetchFollowList = async () => {
       params.endDate = searchForm.value.dateRange[1];
     }
     
+    console.log('开始获取客户跟进列表...');
     const res = await getFollowList(params);
-    tableData.value = res.data.list;
-    total.value = res.data.total;
+    console.log('获取客户跟进列表成功, 响应码:', res.code);
+    
+    // 确保响应数据结构正确
+    if (!res || typeof res !== 'object') {
+      console.error('响应数据异常:', res);
+      ElMessage.error('获取数据格式异常');
+      tableData.value = [];
+      total.value = 0;
+      return;
+    }
+    
+    // 确保data.list存在
+    if (!res.data) {
+      console.warn('响应中没有data字段');
+      res.data = { list: [], total: 0 };
+    } else if (!res.data.list && Array.isArray(res.data)) {
+      // 如果data是数组而不是{list, total}结构
+      console.warn('数据结构为数组，进行适配');
+      res.data = { list: res.data, total: res.data.length };
+    } else if (!res.data.list) {
+      console.warn('数据中没有list字段');
+      res.data.list = [];
+      res.data.total = 0;
+    }
+    
+    console.log('获取到跟进记录条数:', res.data.list.length);
+    
+    // 使用工具函数处理整个列表的BLOB字段
+    if (res.data.list && res.data.list.length > 0) {
+      try {
+        console.log('开始处理跟进记录数据...');
+        // 使用工具函数处理整个列表
+        const processedList = formatListWithBlobs(res.data.list, ['content', 'nextPlan']);
+        
+        // 确保所有必要的字段都存在
+        tableData.value = processedList.map((item, index) => {
+          // 添加默认值，确保表格正常显示
+          return {
+            ...item,
+            id: item.id || index + 1,
+            customerName: item.customerName || '未知客户',
+            userName: item.userName || '未知用户',
+            followType: item.followType || '未知类型',
+            followTime: item.followTime || new Date().toISOString().slice(0, 19).replace('T', ' '),
+            nextTime: item.nextTime || '',
+            content: item.content || '',
+            nextPlan: item.nextPlan || ''
+          };
+        });
+        
+        console.log('数据处理完成，表格数据条数:', tableData.value.length);
+      } catch (error) {
+        console.error('处理数据时出错:', error);
+        // 发生错误时，尝试简单处理
+        tableData.value = res.data.list.map((item, index) => ({
+          id: item.id || index + 1,
+          customerName: item.customerName || '未知客户',
+          userName: item.userName || '未知用户',
+          followType: item.followType || '未知类型',
+          followTime: item.followTime || '',
+          content: typeof item.content === 'object' ? '数据解析中...' : (item.content || ''),
+          nextPlan: typeof item.nextPlan === 'object' ? '数据解析中...' : (item.nextPlan || ''),
+          nextTime: item.nextTime || ''
+        }));
+      }
+    } else {
+      console.log('无跟进记录数据');
+      tableData.value = [];
+    }
+    
+    total.value = res.data.total || 0;
+    console.log('设置总记录数:', total.value);
   } catch (error) {
     console.error('获取客户跟进记录列表出错:', error);
+    console.log('错误详情:', error.message, error.stack);
     ElMessage.error('获取客户跟进记录列表失败，请稍后重试');
+    tableData.value = [];
+    total.value = 0;
   } finally {
     loading.value = false;
   }
@@ -341,11 +416,23 @@ const fetchFollowList = async () => {
 // 获取客户列表（用于新增跟进记录时选择客户）
 const fetchCustomerList = async () => {
   try {
+    console.log('开始获取客户列表...');
     const res = await getCustomerList({ pageSize: 1000 });
+    
+    // 确保响应数据结构正确
+    if (!res || !res.data || !res.data.list) {
+      console.error('客户列表响应异常:', res);
+      ElMessage.error('获取客户列表格式异常');
+      customerOptions.value = [];
+      return;
+    }
+    
     customerOptions.value = res.data.list;
+    console.log('获取客户列表成功，条数:', customerOptions.value.length);
   } catch (error) {
     console.error('获取客户列表出错:', error);
     ElMessage.error('获取客户列表失败，请稍后重试');
+    customerOptions.value = [];
   }
 };
 
@@ -428,23 +515,44 @@ const confirmAdd = () => {
 
 // 处理编辑操作
 const handleEdit = async (row) => {
+  console.log('开始编辑记录, ID:', row.id);
   loading.value = true;
   try {
     // 获取完整的跟进记录信息
     const res = await getFollowById(row.id);
+    console.log('获取详情成功, 响应码:', res.code);
+    
+    // 确保响应数据结构正确
+    if (!res || !res.data) {
+      console.error('获取详情响应异常:', res);
+      ElMessage.error('获取详情数据异常');
+      return;
+    }
+    
+    // 使用BLOB解析工具处理详情数据
+    const processedData = formatObjectWithBlobs(res.data);
+    
     // 设置编辑表单数据
     editForm.value = {
-      id: res.data.id,
-      customerName: res.data.customerName,
-      followType: res.data.followType,
-      followTime: res.data.followTime,
-      content: res.data.content,
-      nextPlan: res.data.nextPlan,
-      nextTime: res.data.nextTime
+      id: processedData.id,
+      customerName: processedData.customerName || '未知客户',
+      followType: processedData.followType || '未知类型',
+      followTime: processedData.followTime || new Date().toISOString().slice(0, 19).replace('T', ' '),
+      content: processedData.content,
+      nextPlan: processedData.nextPlan,
+      nextTime: processedData.nextTime || ''
     };
+    
+    console.log('编辑表单数据设置完成:', {
+      id: editForm.value.id,
+      customerName: editForm.value.customerName,
+      followType: editForm.value.followType
+    });
+    
     editDialogVisible.value = true;
   } catch (error) {
     console.error('获取跟进记录详情出错:', error);
+    console.log('错误详情:', error.message, error.stack);
     ElMessage.error('获取跟进记录详情失败，请稍后重试');
   } finally {
     loading.value = false;
@@ -536,6 +644,7 @@ const confirmDelete = async () => {
 
 // 初始化
 onMounted(() => {
+  console.log('客户跟进模块初始化...');
   fetchFollowList();
   fetchCustomerList();
 });
