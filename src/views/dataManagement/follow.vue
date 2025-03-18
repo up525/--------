@@ -81,8 +81,6 @@
             :page-sizes="[10, 20, 50, 100]"
             layout="total, sizes, prev, pager, next, jumper"
             :total="total"
-            @size-change="handleSizeChange"
-            @current-change="handleCurrentChange"
             background
           />
         </div>
@@ -224,7 +222,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { 
   getFollowList, 
@@ -327,12 +325,39 @@ const fetchFollowList = async () => {
       params.endDate = searchForm.value.dateRange[1];
     }
     
+    console.log('请求参数:', params);
     const res = await getFollowList(params);
-    tableData.value = res.data.list;
-    total.value = res.data.total;
+    console.log('获取跟进记录返回数据:', res);
+    
+    // 兼容不同的后端返回结构
+    if (res.data) {
+      if (Array.isArray(res.data)) {
+        // 直接返回数组的情况
+        tableData.value = res.data;
+        total.value = res.data.length; // 如果没有返回总数，就用数组长度
+      } else if (res.data.list) {
+        // 返回{list, total}结构
+        tableData.value = res.data.list;
+        total.value = res.data.total || res.data.list.length;
+      } else if (res.data.rows) {
+        // 返回{rows, total}结构
+        tableData.value = res.data.rows;
+        total.value = res.data.total || res.data.rows.length;
+      } else {
+        // 其他情况，尝试使用res.data作为数据
+        tableData.value = res.data;
+        total.value = res.data.length;
+      }
+    } else {
+      tableData.value = [];
+      total.value = 0;
+      console.error('返回数据格式异常:', res);
+    }
   } catch (error) {
     console.error('获取客户跟进记录列表出错:', error);
     ElMessage.error('获取客户跟进记录列表失败，请稍后重试');
+    tableData.value = [];
+    total.value = 0;
   } finally {
     loading.value = false;
   }
@@ -430,8 +455,12 @@ const confirmAdd = () => {
 const handleEdit = async (row) => {
   loading.value = true;
   try {
+    console.log('获取跟进记录详情，ID:', row.id);
+    // 确保传递的是数字ID而不是字符串模板
+    const id = parseInt(row.id, 10);
     // 获取完整的跟进记录信息
-    const res = await getFollowById(row.id);
+    const res = await getFollowById(id);
+    console.log('获取跟进记录详情返回:', res);
     // 设置编辑表单数据
     editForm.value = {
       id: res.data.id,
@@ -514,7 +543,10 @@ const handleDelete = (row) => {
 const confirmDelete = async () => {
   loading.value = true;
   try {
-    await deleteFollow(deleteForm.value.id);
+    console.log('删除跟进记录，ID:', deleteForm.value.id);
+    // 确保传递的是数字ID而不是字符串模板
+    const id = parseInt(deleteForm.value.id, 10);
+    await deleteFollow(id);
     
     ElMessage.success('删除成功');
     deleteDialogVisible.value = false;
@@ -538,6 +570,22 @@ const confirmDelete = async () => {
 onMounted(() => {
   fetchFollowList();
   fetchCustomerList();
+});
+
+// 监听分页变化
+watch(currentPage, (newVal) => {
+  console.log('页码变化:', newVal);
+  fetchFollowList();
+});
+
+watch(pageSize, (newVal) => {
+  console.log('每页大小变化:', newVal);
+  // 页大小变化时重置为第一页
+  if (currentPage.value !== 1) {
+    currentPage.value = 1;
+  } else {
+    fetchFollowList();
+  }
 });
 </script>
 

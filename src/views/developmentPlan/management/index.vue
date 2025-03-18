@@ -79,8 +79,6 @@
             :page-sizes="[10, 20, 30, 50]"
             layout="total, sizes, prev, pager, next, jumper"
             :total="total"
-            @size-change="handleSizeChange"
-            @current-change="handleCurrentChange"
             background
           >
             <template #total>
@@ -410,18 +408,6 @@ const confirmDelete = async () => {
     loading.value = false;
     deleteDialogVisible.value = false;
   }
-};
-
-// 分页大小变化
-const handleSizeChange = (size) => {
-  pageSize.value = size;
-  fetchPlanList();
-};
-
-// 页码变化
-const handleCurrentChange = (page) => {
-  currentPage.value = page;
-  fetchPlanList();
 };
 
 // 初始化

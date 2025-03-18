@@ -74,8 +74,6 @@
             :page-sizes="[10, 20, 50, 100]"
             layout="total, sizes, prev, pager, next, jumper"
             :total="total"
-            @size-change="handleSizeChange"
-            @current-change="handleCurrentChange"
             background
           />
         </div>
@@ -286,18 +284,6 @@ const resetSearch = () => {
     phone: ''
   };
   handleSearch();
-};
-
-// 分页大小变化
-const handleSizeChange = (size) => {
-  pageSize.value = size;
-  fetchCustomerList();
-};
-
-// 页码变化
-const handleCurrentChange = (page) => {
-  currentPage.value = page;
-  fetchCustomerList();
 };
 
 // 处理新增操作
